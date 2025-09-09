@@ -140,6 +140,13 @@ func processConfig(configPath string) error {
 	// 4. Save the journals as markdown files with some yaml at the top
 	for _, journal := range journals {
 		journalDir := filepath.Join(config.OutputDir, journal.ID)
+
+		// recursively delete matching journalDir
+		if err := os.RemoveAll(journalDir); err != nil {
+			log.Fatalf("Error removing existing journal directory: %v", err)
+		}
+
+		// create journalDir
 		if err := os.MkdirAll(journalDir, 0755); err != nil {
 			log.Fatalf("Error creating journal directory: %v", err)
 		}
