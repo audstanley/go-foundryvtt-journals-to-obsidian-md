@@ -1,4 +1,4 @@
-module example.com/m/v2
+module github.com/audstanley/go-foundryvtt-journals-to-obsidian-md
 
 go 1.21.5
 
