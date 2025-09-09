@@ -37,42 +37,46 @@ type Journal struct {
 }
 
 func main() {
-	// 1. Read and parse the config.yaml file.
-	yamlFile, err := os.ReadFile("config.yaml")
+	// Find all config files matching the pattern "config-*.yaml"
+	configFiles, err := filepath.Glob("config-*.yaml")
 	if err != nil {
-		log.Fatalf("Error reading config file: %v", err)
+		log.Fatalf("Error finding config files: %v", err)
+	}
+
+	if len(configFiles) == 0 {
+		log.Println("No config-*.yaml files found. Exiting.")
+		return
+	}
+
+	for _, filePath := range configFiles {
+		log.Printf("Processing config file: %s\n", filePath)
+		if err := processConfig(filePath); err != nil {
+			log.Printf("Failed to process %s: %v", filePath, err)
+		}
+	}
+}
+
+// processConfig handles the logic for a single config file
+func processConfig(configPath string) error {
+	// 1. Read and parse the config.yaml file.
+	yamlFile, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("error reading config file %s: %w", configPath, err)
 	}
 
 	var config Config
 	err = yaml.Unmarshal(yamlFile, &config)
 	if err != nil {
-		log.Fatalf("Error unmarshaling YAML: %v", err)
+		return fmt.Errorf("error unmarshaling YAML from %s: %w", configPath, err)
 	}
 
 	// 2. Open the LevelDB database.
 	db, err := leveldb.OpenFile(config.InputDir, nil)
 	if err != nil {
-		log.Fatalf("Error opening LevelDB at %s: %v", config.InputDir, err)
+		return fmt.Errorf("error opening LevelDB at %s: %w", config.InputDir, err)
 	}
-	defer db.Close()
 
-	// Debugging code to list keys
-	fmt.Println("\n--- Listing first 300 keys in the database ---")
-	iter := db.NewIterator(nil, nil)
-	defer iter.Release()
-	i := 0
-	for iter.Next() {
-		if i >= 300 {
-			break
-		}
-		key := iter.Key()
-		fmt.Printf("Found Key: %x -> %s\n", key, key)
-		i++
-	}
-	if err := iter.Error(); err != nil {
-		log.Printf("Iterator error: %v", err)
-	}
-	fmt.Println("----------------------------------------------\n")
+	defer db.Close()
 
 	// 3. Process the journals and their pages.
 	var journals []Journal
@@ -115,14 +119,14 @@ func main() {
 				if pageIDStr, ok := pageID.(string); ok {
 					pageValue, err := db.Get([]byte("!journal.pages!"+key+"."+pageIDStr), nil)
 					if err != nil {
-						log.Printf("  - Could not find page for key %s: %v", "!journal.pages!"+key+"."+pageIDStr, err)
+						log.Printf("  - Could not find page for key %s: %v", "!journal.pages!"+key+"."+pageIDStr, err)
 						continue
 					}
 
 					var pageData Page
 					pageData.ID = pageIDStr
 					if err := json.Unmarshal(pageValue, &pageData); err != nil {
-						log.Printf("  - Could not parse JSON for page %s: %v", pageIDStr, err)
+						log.Printf("  - Could not parse JSON for page %s: %v", pageIDStr, err)
 						continue
 					}
 					journal.Pages = append(journal.Pages, pageData)
@@ -133,25 +137,7 @@ func main() {
 		journals = append(journals, journal)
 	}
 
-	// 4. Dump the collected data to a YAML file.
-	// journalYaml, err := yaml.Marshal(journals)
-	// if err != nil {
-	// 	log.Fatalf("Error marshaling to YAML: %v", err)
-	// }
-
-	outputFilePath := filepath.Join(config.OutputDir, "journals_dump.yaml")
-
-	// Ensure the output directory exists.
-	if err := os.MkdirAll(config.OutputDir, 0755); err != nil {
-		log.Fatalf("Error creating output directory: %v", err)
-	}
-
-	// err = os.WriteFile(outputFilePath, journalYaml, 0644)
-	// if err != nil {
-	// 	log.Fatalf("Error writing YAML file: %v", err)
-	// }
-
-	// Save the journals as markdown files with some yaml at the top
+	// 4. Save the journals as markdown files with some yaml at the top
 	for _, journal := range journals {
 		journalDir := filepath.Join(config.OutputDir, journal.ID)
 		if err := os.MkdirAll(journalDir, 0755); err != nil {
@@ -159,7 +145,7 @@ func main() {
 		}
 
 		for _, page := range journal.Pages {
-			pageFilePath := filepath.Join(journalDir, fmt.Sprintf("%s - %s.md", page.ID, page.Name))
+			pageFilePath := filepath.Join(journalDir, fmt.Sprintf("%s.md", page.ID))
 			pageCopy := page
 			pageCopy.Text = Content{} // remove text content from yaml frontmatter
 			pageYaml, err := yaml.Marshal(pageCopy)
@@ -176,5 +162,5 @@ func main() {
 		}
 	}
 
-	fmt.Printf("\nSuccessfully dumped data to %s\n", outputFilePath)
+	return nil
 }
